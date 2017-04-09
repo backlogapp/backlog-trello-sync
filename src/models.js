@@ -10,6 +10,7 @@ const backlogMethods = {
     label.sync.trello = {
       id: trelloLabelId
     }
+    this.markModified('labels')
     return this.save()
   },
 
@@ -20,6 +21,7 @@ const backlogMethods = {
       throw new Error('No Trello list synchronized')
     }
     label.sync.trello = undefined
+    this.markModified('labels')
     return this.save()
   }
 }
@@ -45,12 +47,13 @@ const cardMethods = {
 
   addTrelloChecklistItem: function(token, secret, acId, itemId, checklistId) {
     //TODO check if authorized
-    const ac = this.acceptanceCriteria.find(ac => ac.id === acId)
+    const ac = this.acceptanceCriteria.id(acId)
     ac.sync = ac.sync || {}
     ac.sync.trello = {
       id: itemId,
       checklistId
     }
+    this.markModified('acceptanceCriteria')
     return this.save()
   },
 
@@ -61,6 +64,7 @@ const cardMethods = {
       throw new Error('No Trello list synchronized')
     }
     ac.sync.trello = undefined
+    this.markModified('acceptanceCriteria')
     return this.save()
   }
 }
