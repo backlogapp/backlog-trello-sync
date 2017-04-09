@@ -1,4 +1,5 @@
 import oauth from './oauth.js'
+import Promise from 'bluebird'
 
 const apiBase = 'https://api.trello.com/1'
 
@@ -27,7 +28,7 @@ function request(type, path, token, secret, data) {
     if (openRequests >= 1) {
       setTimeout(function() {
         resolve(request(type, path, token, secret, data))
-      }, 10)
+      }, 100)
     } else {
       if (openRequests === undefined) {
         requests[token] = 1
@@ -56,63 +57,54 @@ export const labelColors = {
   black: 'black'
 }
 
-export const getUserBoards = (token, secret) => {
-  return request('get', 'members/me/boards', token, secret)
-}
+// Boards
 
-export const getLists = (token, secret, { boardId }) => {
-  return request('get', `boards/${boardId}/lists`, token, secret)
-}
+export const getUserBoards = (token, secret) =>
+  request('get', 'members/me/boards', token, secret)
 
-export const getBoardIdForList = (token, secret, { listId }) => {
-  return request('get', `lists/${listId}/idBoard`, token, secret).then(result => result['_value'])
-}
+export const createBoard = (token, secret, { name }) =>
+  request('post', 'boards', token, secret, { name })
 
-export const createBoard = (token, secret, { name }) => {
-  return request('post', 'boards', token, secret, { name })
-}
+// Lists
 
-export const createList = (token, secret, { name, boardId }) => {
-  return request('post', 'lists', token, secret, { name, idBoard: boardId })
-}
+export const getLists = (token, secret, { boardId }) =>
+  request('get', `boards/${boardId}/lists`, token, secret)
 
-export const createCard = (token, secret, { listId, name, description, position, labelIds }) => {
-  return request('post', 'cards', token, secret, {
+export const getBoardIdForList = (token, secret, { listId }) =>
+  request('get', `lists/${listId}/idBoard`, token, secret).then(result => result['_value'])
+
+export const createList = (token, secret, { name, boardId }) =>
+  request('post', 'lists', token, secret, { name, idBoard: boardId })
+
+// Cards
+
+export const createCard = (token, secret, { listId, name, description, position, labelIds }) =>
+  request('post', 'cards', token, secret, {
     idList: listId,
     name,
     desc: description,
     position,
     idLabels: labelIds.length ? labelIds.join(',') : null,
     due: null })
-}
 
-export const createLabel = (token, secret, { boardId, name, color }) => {
-  return request('post', 'labels', token, secret, { idBoard: boardId, name, color })
-}
+export const clearCards = (token, secret, { listId }) => request('get', `lists/${listId}/cards`, token, secret)
+  .then(cards => Promise.map(cards, card => request('delete', `cards/${card.id}`, token, secret)))
 
-export const createChecklist = (token, secret, { cardId, name }) => {
-  return request('post', 'checklists', token, secret, { idCard: cardId, name })
-}
+// Labels
 
-export const createChecklistItem = (token, secret, { checklistId, name, checked }) => {
-  return request('post', `checklists/${checklistId}/checkItems`, token, secret, { name, checked })
-}
+export const createLabel = (token, secret, { boardId, name, color }) =>
+  request('post', 'labels', token, secret, { idBoard: boardId, name, color })
 
-export const clearLabels = (token, secret, { boardId }) => {
-  return request('get', `boards/${boardId}/labels`, token, secret).then(labels => {
-    return Promise.all(labels.map(label => {
-      return request('delete', `labels/${label.id}`, token, secret)
-    }))
-  })
-}
+export const clearLabels = (token, secret, { boardId }) => request('get', `boards/${boardId}/labels`, token, secret)
+  .then(labels => Promise.map(labels, label => request('delete', `labels/${label.id}`, token, secret)))
 
-export const clearCards = (token, secret, { listId }) => {
-  return request('get', `lists/${listId}/cards`, token, secret).then(cards => {
-    return Promise.all(cards.map(card => {
-      return request('delete', `cards/${card.id}`, token, secret)
-    }))
-  })
-}
+// Checklists
+
+export const createChecklist = (token, secret, { cardId, name }) =>
+  request('post', 'checklists', token, secret, { idCard: cardId, name })
+
+export const createChecklistItem = (token, secret, { checklistId, name, checked }) =>
+  request('post', `checklists/${checklistId}/checkItems`, token, secret, { name, checked })
 
 export const createWebhook = (token, secret, { callbackURL, modelId, description }) => {
   return request('post', `webhooks`, token, secret, { callbackURL, idModel: modelId, description })

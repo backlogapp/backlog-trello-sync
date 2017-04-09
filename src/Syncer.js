@@ -1,29 +1,18 @@
 import { mongoose } from 'backlog-models'
 import models from './models'
 import Promise from 'bluebird'
-import {
-  getBoardIdForList,
-  createCard, createLabel, createChecklist, createChecklistItem,
-  clearLabels, clearCards,
-  labelColors,
-} from './trello'
+import * as trello from './trello'
 
 const { Backlog, Sprint, Card } = models
 
 export default class Syncer {
   constructor(dbUrl) {
-    this.dbUrl = dbUrl
-    this.db = null
-    this.running = false
-  }
-
-  start() {
-    mongoose.connect(this.dbUrl)
+    mongoose.connect(dbUrl)
+    mongoose.Promise = Promise
     this.db = mongoose.connection
     this.db.on('error', console.error.bind(console, 'connection error:'))
     this.db.once('open', () => {
-      this.running = true
-      console.log('running')
+      console.log('Syncer running')
     })
   }
 
@@ -31,83 +20,62 @@ export default class Syncer {
     const { title, description, estimate, labelIds } = card
     const trelloLabelIds = labelIds.map(labelId => labelsMapping[labelId])
 
-    return createCard(token, secret, {
+    return trello.createCard(token, secret, {
         listId,
         name: `(${estimate || '?'}) ${title}`,
         description,
         labelIds: trelloLabelIds
       })
-      .then(trelloCard => {
-        return card.addTrelloCard(token, secret, trelloCard.id)
-      })
-      .then(newCard => {
-        this.exportAcceptanceCriteria(token, secret, newCard)
-        return newCard
-      })
+      .then(trelloCard => card.addTrelloCard(token, secret, trelloCard.id))
+      .tap(newCard => this.exportAcceptanceCriteria(token, secret, newCard))
   }
 
   exportSprintToList(token, secret, sprint, listId, labelsMapping) {
-    return clearCards(token, secret, { listId })
-      .then(() => {
-        return Card.find({ _id: { $in: sprint.cardIds } }).exec().then(cards => cards.sort((a, b) => {
-          return sprint.cardIds.indexOf(a._id) - sprint.cardIds.indexOf(b._id)
-        }))
-      })
-      .then(cards => {
-        return Promise.mapSeries(cards, card => {
-          return this.addCard(token, secret, listId, card, labelsMapping)
-        })
-      })
+    return trello.clearCards(token, secret, { listId })
+      .then(() => Card.find({ _id: { $in: sprint.cardIds } }).exec())
+      .then(cards => cards.sort((a, b) => sprint.cardIds.indexOf(a._id) - sprint.cardIds.indexOf(b._id)))
+      .then(sortedCards =>
+        Promise.mapSeries(sortedCards, card => this.addCard(token, secret, listId, card, labelsMapping))
+      )
   }
 
   addLabel(token, secret, boardId, backlog, label) {
-    return createLabel(token, secret, {
+    return trello.createLabel(token, secret, {
       boardId,
       name: label.name || '',
-      color: labelColors[label.color] || null
-    }).then(trelloLabel => {
-      return backlog.addTrelloLabel(token, secret, label._id, trelloLabel.id)
-    })
+      color: trello.labelColors[label.color] || null
+    }).then(trelloLabel => backlog.addTrelloLabel(token, secret, label._id, trelloLabel.id))
   }
 
   addAcceptanceCriterium(token, secret, checklistId, ac, card) {
-    return createChecklistItem(token, secret, {
+    return trello.createChecklistItem(token, secret, {
       checklistId: checklistId,
       name: ac.title,
       checked: ac.done
-    }).then(checklistItem => {
-      return card.addTrelloChecklistItem(token, secret, ac.id, checklistItem.id, checklistId)
-    })
+    }).then(checklistItem => card.addTrelloChecklistItem(token, secret, ac.id, checklistItem.id, checklistId))
   }
 
   exportAcceptanceCriteria(token, secret, card) {
     const { sync: { trello: { id: cardId } }, acceptanceCriteria } = card
     if (acceptanceCriteria.length > 0) {
-      return createChecklist(token, secret, { cardId, name: 'Acceptance criteria' })
-        .then(checklist => {
-          return Promise.mapSeries(acceptanceCriteria, acceptanceCriterium => {
-            return this.addAcceptanceCriterium(token, secret, checklist.id, acceptanceCriterium, card)
-          })
-        })
+      return trello.createChecklist(token, secret, { cardId, name: 'Acceptance criteria' }).then(checklist =>
+        Promise.mapSeries(acceptanceCriteria, acceptanceCriterium =>
+          this.addAcceptanceCriterium(token, secret, checklist.id, acceptanceCriterium, card))
+      )
     }
     return Promise.resolve({})
   }
 
   exportLabels(token, secret, backlog, boardId) {
-    const { labels } = backlog
+    return trello.clearLabels(token, secret, { boardId })
+      .then(() => Promise.mapSeries(backlog.labels, this.addLabel.bind(this, token, secret, boardId, backlog)))
+      .then(() => Backlog.findById(backlog._id).exec())
+      .then(backlogWithLabels => backlogWithLabels.labels)
+      .reduce((mapping, label) => {
+        mapping[label._id] = label.sync.trello.id
 
-    return clearLabels(token, secret, { boardId })
-      .then(() => {
-        return Promise.mapSeries(labels, this.addLabel.bind(this, token, secret, boardId, backlog))
-      })
-      .then(() => {
-        return Backlog.findById(backlog._id).exec()
-          .then(backlogWithLabels => backlogWithLabels.labels.reduce((mapping, label) => {
-            const { _id, sync: { trello: { id } } } = label
-            mapping[_id] = id
-            return mapping
-          }, {}))
-      })
+        return mapping
+      }, {})
   }
 
   exportActiveSprintFromBacklog(token, secret, backlogId) {
@@ -118,13 +86,12 @@ export default class Syncer {
         throw new Error('not authorized')
       }
 
-      return getBoardIdForList(token, secret, { listId }).then(boardId => {
-        return this.exportLabels(token, secret, backlog, boardId).then(labelsMapping => {
-          return Sprint.findOne({ backlogId, isActive: true }).exec().then(sprint => {
-            return this.exportSprintToList(token, secret, sprint, listId, labelsMapping)
-          })
-        })
-      })
+      return Promise.all([
+        trello.getBoardIdForList(token, secret, { listId }),
+        Sprint.findOne({ backlogId, isActive: true }).exec()
+      ]).spread((boardId, sprint) => this.exportLabels(token, secret, backlog, boardId)
+        .then(labelsMapping => this.exportSprintToList(token, secret, sprint, listId, labelsMapping))
+      )
     })
   }
 }

@@ -25,7 +25,7 @@ export const login = (req, res) => {
   oauth.getOAuthRequestToken((error, requestToken, requestTokenSecret) => {
     const scope = 'read,write'
     const expiration = 'never'
-    const locationUrl = `${authorizeUrl}?oauth_token=${requestToken}&name=${appName}&scope=${scope}&expiration=${expiration}`
+    const redirectUrl = `${authorizeUrl}?oauth_token=${requestToken}&name=${appName}&scope=${scope}&expiration=${expiration}`
 
     if (error) {
       return handleError(res, error)
@@ -36,7 +36,7 @@ export const login = (req, res) => {
       returnUrl
     }
 
-    res.writeHead(302, { 'Location': locationUrl })
+    res.writeHead(302, { 'Location': redirectUrl })
     res.end()
   })
 }
@@ -53,7 +53,9 @@ export const cb = (req, res) => {
       return handleError(res, error)
     }
 
-    res.writeHead(302, { 'Location': `${returnUrl}?accessToken=${accessToken}&accessTokenSecret=${accessTokenSecret}` })
+    const redirectUrl = `${returnUrl}?accessToken=${accessToken}&accessTokenSecret=${accessTokenSecret}`
+
+    res.writeHead(302, { 'Location': redirectUrl })
     res.end()
   })
 }
