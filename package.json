@@ -32,14 +32,14 @@
     "nodemon": "1.10.0"
   },
   "dependencies": {
-    "backlog-models": "1.0.1",
-    "bluebird": "3.4.1",
-    "body-parser": "1.15.2",
-    "convict": "1.4.0",
-    "cors": "2.8.1",
-    "express": "4.14.0",
+    "backlog-models": "1.0.2",
+    "bluebird": "3.5.0",
+    "body-parser": "1.17.1",
+    "convict": "3.0.0",
+    "cors": "2.8.3",
+    "express": "4.15.2",
     "meteor-random": "0.0.3",
-    "oauth": "0.9.14"
+    "oauth": "0.9.15"
   },
   "ava": {
     "require": [
